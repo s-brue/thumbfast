@@ -54,7 +54,7 @@ If you installed mpv via [Homebrew](https://brew.sh/), there are no issues.
 `thumbnail`: Path for the temporary thumbnail file (must not be a directory). Leave empty for auto.  
 `max_height`, `max_width`: Maximum thumbnail generation size in pixels (scaled down to fit). Values are scaled when hidpi is enabled. Defaults to 200x200.  
 `scale_factor`: Scale factor for thumbnail display size (requires mpv 0.38+). Lower quality than increasing max_height and max_width. Defaults to 1.  
-`tone_mapping`: Apply tone-mapping, no to disable. Defaults to auto, which copies your mpv config.  
+`tone_mapping`: Convert HDR (PQ, HLG) thumbnails to SDR, no to disable. Defaults to auto, which uses the algorithm of your mpv config if FFmpeg has it, and mobius otherwise.  
 `overlay_id`: Overlay id for thumbnails. Leave blank unless you know what you're doing.  
 `spawn_first`: Spawn thumbnailer on file load for faster initial thumbnails. Defaults to no.  
 `quit_after_inactivity`: Close thumbnailer process after an inactivity period in seconds. Defaults to 0 (disabled).  

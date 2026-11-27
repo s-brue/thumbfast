@@ -164,7 +164,6 @@ local filters_runtime = {["hflip"]=true, ["vflip"]=true}
 local filters_all = {["hflip"]=true, ["vflip"]=true, ["lavfi-crop"]=true, ["crop"]=true}
 
 local tone_mappings = {["none"]=true, ["clip"]=true, ["linear"]=true, ["gamma"]=true, ["reinhard"]=true, ["hable"]=true, ["mobius"]=true}
-local last_tone_mapping
 
 local last_vf_reset = ""
 local last_vf_runtime = ""
@@ -303,22 +302,6 @@ if mpv_path == "mpv" and os_name == "darwin" and unique then
     end
 end
 
-local function vo_tone_mapping()
-    local passes = mp.get_property_native("vo-passes")
-    if passes and passes["fresh"] then
-        for k, v in pairs(passes["fresh"]) do
-            for k2, v2 in pairs(v) do
-                if k2 == "desc" and v2 then
-                    local tone_mapping = string.match(v2, "([0-9a-z.-]+) tone map")
-                    if tone_mapping then
-                        return tone_mapping
-                    end
-                end
-            end
-        end
-    end
-end
-
 local function vf_string(filters, full)
     local vf = ""
     local vf_table = properties["vf"]
@@ -347,21 +330,22 @@ local function vf_string(filters, full)
         end
     end
 
-    if (full and options.tone_mapping ~= "no") or options.tone_mapping == "auto" then
-        if properties["video-params"] and properties["video-params"]["primaries"] == "bt.2020" then
-            local tone_mapping = options.tone_mapping
-            if tone_mapping == "auto" then
-                tone_mapping = last_tone_mapping or properties["tone-mapping"]
-                if tone_mapping == "auto" and properties["current-vo"] == "gpu-next" then
-                    tone_mapping = vo_tone_mapping()
-                end
-            end
-            if not tone_mappings[tone_mapping] then
-                tone_mapping = "hable"
-            end
-            last_tone_mapping = tone_mapping
-            vf = vf .. "zscale=transfer=linear,format=gbrpf32le,tonemap="..tone_mapping..",zscale=transfer=bt709,"
+    -- HDR to SDR. The conversion is a single libavfilter graph: as separate filters,
+    -- mpv keeps linear light in 10 bits, which crushes the shadows. It runs on the
+    -- frame already scaled down to even dimensions, which is quick, and zscale does
+    -- not fail on odd sizes (a failed filter leaves the thumbnailer hanging).
+    local gamma = properties["video-params"] and properties["video-params"]["gamma"]
+    if full and options.tone_mapping ~= "no" and (gamma == "pq" or gamma == "hlg") then
+        local tone_mapping = options.tone_mapping
+        if tone_mapping == "auto" then
+            tone_mapping = properties["tone-mapping"]
         end
+        if not tone_mappings[tone_mapping] then
+            tone_mapping = "mobius"
+        end
+        vf = vf .. "lavfi=[scale=w="..effective_w..":h="..effective_h..":force_original_aspect_ratio=decrease:force_divisible_by=2,"..
+             "zscale=transfer=linear:npl=203,format=gbrpf32le,zscale=primaries=bt709,"..
+             "tonemap="..tone_mapping..":desat=0,zscale=transfer=bt709:matrix=bt709:range=tv,format=yuv420p],"
     end
 
     if full then
@@ -593,7 +577,8 @@ local function run(command)
         file = io.open(options.socket, "r+")
     end
     if file then
-        file_bytes = file:seek("end")
+        -- seeking on a pipe can fail (seen under Wine): do not crash
+        file_bytes = file:seek("end") or (file_bytes + #command_n)
         file:write(command_n)
         file:flush()
     end
@@ -856,7 +841,6 @@ local function update_property_dirty(name, value)
     properties[name] = value
     dirty = true
     if name == "tone-mapping" then
-        last_tone_mapping = nil
     end
 end
 
@@ -900,7 +884,6 @@ local function file_load()
     spawned = false
     real_w, real_h = nil, nil
     last_real_w, last_real_h = nil, nil
-    last_tone_mapping = nil
     last_seek_time = nil
     if info_timer then
         info_timer:kill()
